@@ -65,7 +65,6 @@ data["source_date"] = data["source_date"].fillna(pd.Timestamp("2000-01-01"))
 logger.info("Sorting data by destination date...")
 data = data.sort_values(by="dest_date").reset_index(drop=True)
 
-# According to the paper:
 # Train: up to 2015
 # Val: 2015 - 2017
 # Test: after 2017
@@ -76,7 +75,6 @@ train_mask = data["dest_date"] <= train_cutoff
 val_mask = (data["dest_date"] > train_cutoff) & (data["dest_date"] <= val_cutoff)
 test_mask = data["dest_date"] > val_cutoff
 
-# We'll use these masks later for splitting edges.
 
 # ====================================
 # 2. Feature Extraction
@@ -86,7 +84,7 @@ logger.info("Initializing LegalBERT tokenizer and model...")
 tokenizer = BertTokenizer.from_pretrained("nlpaueb/legal-bert-base-uncased")
 legalbert_model = BertModel.from_pretrained("nlpaueb/legal-bert-base-uncased")
 legalbert_model.to(device)
-legalbert_model.eval()  # Set to evaluation mode
+legalbert_model.eval()  
 
 def get_cls_embedding(text, tokenizer, model, device, max_length=512):
     """
@@ -177,7 +175,6 @@ text_feature_dim = dest_embeddings.shape[1]
 court_feature_dim = dest_court_ohe.shape[1]
 date_feature_dim = 1
 
-# We will accumulate features per node.
 node_text_embeddings = torch.zeros((num_nodes, text_feature_dim), dtype=torch.float)
 node_court_ohe = torch.zeros((num_nodes, court_feature_dim), dtype=torch.float)
 node_elapsed_days = torch.zeros((num_nodes, date_feature_dim), dtype=torch.float)
@@ -205,7 +202,6 @@ node_text_embeddings = node_text_embeddings / node_degree
 node_court_ohe = node_court_ohe / node_degree
 node_elapsed_days = node_elapsed_days / node_degree
 
-# Construct the main HeteroData object
 hetero_data = HeteroData()
 hetero_data["case"].x = torch.cat([node_text_embeddings, node_court_ohe, node_elapsed_days], dim=1).to(device)
 
@@ -227,7 +223,6 @@ edge_index_all = torch.stack([
 
 edge_text_features = torch.tensor(np.concatenate([quote_embeddings, context_embeddings], axis=1), dtype=torch.float).to(device)
 
-# Now, we split edges according to the temporal criteria:
 train_edges = data[train_mask]
 val_edges = data[val_mask]
 test_edges = data[test_mask]
@@ -251,7 +246,6 @@ train_edge_attr = edge_text_features[train_mask.values]
 val_edge_attr = edge_text_features[val_mask.values]
 test_edge_attr = edge_text_features[test_mask.values]
 
-# The paper describes negative sampling on train/val/test sets:
 def generate_negative_edges(num_neg, edge_index, num_nodes):
     neg_edge_index = negative_sampling(
         edge_index=edge_index,
@@ -265,7 +259,6 @@ train_neg_edge_index = generate_negative_edges(train_edge_index.size(1), train_e
 val_neg_edge_index = generate_negative_edges(val_edge_index.size(1), val_edge_index, num_nodes)
 test_neg_edge_index = generate_negative_edges(test_edge_index.size(1), test_edge_index, num_nodes)
 
-# Store them in hetero_data for easy access
 hetero_data[relation].edge_index = train_edge_index
 hetero_data[relation].edge_attr = train_edge_attr
 hetero_data["train_neg_edge_index"] = train_neg_edge_index
@@ -285,7 +278,6 @@ logger.info("Implementing the GAIN model...")
 class GAIN(nn.Module):
     """
     Graph Attention Inductive Network for link prediction.
-    Using GATv2Conv as a stand-in for GAIN layers.
     This model operates in an inductive setting (nodes unseen at train time)
     due to how we split the graph by time.
     """
@@ -313,7 +305,6 @@ class GAIN(nn.Module):
         self.dropout = dropout
 
     def forward(self, x, edge_index, edge_attr=None):
-        # edge_attr can be optionally used if desired, but not strictly required for vanilla GAIN
         for conv in self.convs[:-1]:
             x = F.dropout(x, p=self.dropout, training=self.training)
             x = F.elu(conv(x, edge_index))
