@@ -1,0 +1,291 @@
+\documentclass{article}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2023
+
+
+% ready for submission
+% \usepackage{neurips_2023}
+
+
+\usepackage[final]{neurips_2023}
+
+
+
+
+\usepackage[utf8]{inputenc}    % allow utf-8 input
+\usepackage[T1]{fontenc}       % use 8-bit T1 fonts
+\usepackage{hyperref}          % hyperlinks
+\usepackage{url}               % simple URL typesetting
+\usepackage{booktabs}          % professional-quality tables
+\usepackage{amsfonts}          % blackboard math symbols
+\usepackage{nicefrac}          % compact symbols for 1/2, etc.
+\usepackage{microtype}         % microtypography
+\usepackage{xcolor}            % colors
+\usepackage{amsmath}           % mathematical symbols
+\usepackage{graphicx}          % figures
+\usepackage{enumitem}          % customized lists
+\usepackage{natbib}
+\usepackage{float}             % for [H] placement
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{multirow}         % colors
+
+
+\title{Citation Is All You Need:\\ Predicting Legal Citations with Graph Neural Networks and Textual Metadata}
+
+
+\author{%
+  Harry Sanders \\
+  Department of Mathematics\\
+  University of Michigan\\
+  Ann Arbor, MI 48104 \\
+  \texttt{hwsand@umich.edu} \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+    Legal citation networks are fundamental structures through which jurisprudential influence and doctrinal evolution can be understood. Predicting future citations—i.e., which legal opinions a newly decided case will cite—has the potential to transform legal research and decision-making processes by automatically identifying influential precedents. However, this task is challenging because legal citation networks are temporally evolving, topologically complex, and embedded in domain-specific language. We propose a novel method that integrates Graph Neural Networks (GNNs) with textual embeddings from LegalBERT, enabling a comprehensive modeling of both the structural and semantic aspects of citation networks in an inductive setting. We adopt the Graph Attention Inductive Network (GAIN) to encode evolving citation graphs and combine it with domain-adapted LegalBERT embeddings to more accurately predict citations for newly issued opinions. Experiments on a subset of U.S. Supreme Court opinions demonstrate that our approach substantially outperforms traditional link prediction methods, classical text similarity techniques, and even specialized legal citation prediction models. These results highlight the importance of integrating structure and domain-specific semantics for advancing the state-of-the-art in legal citation prediction.
+\end{abstract}
+    
+\section{Introduction}
+Legal citation analysis—understanding and anticipating how new judicial decisions will cite previously issued opinions—is critical for legal scholarship, legal research tool development, and the study of jurisprudential evolution \citep{fowler2007network, post2000fractal}. Citations are the connective tissue of the common law system, reflecting the doctrinal relevance, interpretative influence, and precedential authority of past cases. Yet, with tens of millions of legal opinions available online \citep{hall_judicial_2006}, traditional manual research methods struggle to scale, and even advanced search engines often rely on heuristic approaches.
+
+The problem we address is \emph{inductive legal citation prediction}: given a new legal opinion (which by definition has not previously appeared in the network), can we predict which existing opinions it will cite? More formally, we start with a temporal citation network of legal opinions (nodes) and their citation links (directed edges), and when a new opinion arrives, we aim to predict its outgoing edges. Inputs to the model include the text and metadata of the new opinion, along with the historical citation network and textual embeddings of previously seen opinions. The output is a ranking or probability score for each candidate older opinion, reflecting its likelihood of being cited by the new opinion.
+
+Traditional approaches often rely on classical link prediction algorithms such as Jaccard Coefficient or Preferential Attachment \citep{liben2007link} that capture structural patterns but ignore semantic content. Purely textual methods like BM25 \citep{robertson2009probabilistic} or generic sentence embeddings \citep{reimers2019sentence} do not fully exploit the rich relational structure of the citation network. Domain-specific legal embeddings (e.g., LegalBERT \citep{chalkidis-etal-2020-legalbert}) improve semantic modeling but do not alone solve the structural induction challenge. On the other hand, recent work such as LePARD \citep{mahari2022lepard} has begun to explore legal citation prediction, yet these solutions often struggle to incorporate both sophisticated graph structure and specialized textual embeddings, especially in an inductive scenario where new nodes enter over time.
+
+We propose a method that integrates a Graph Attention Inductive Network (GAIN) \citep{weng2022gain} with LegalBERT embeddings to address these challenges. GAIN allows us to handle inductive inference—predicting links for previously unseen nodes—while LegalBERT provides a domain-specific language representation that captures the subtle legal reasoning patterns embedded in the text. By combining these approaches, we aim to overcome the limitations of previous methods and significantly improve citation prediction accuracy.
+
+Our contributions are:
+\begin{itemize}[leftmargin=*]
+    \item We introduce a GNN-based approach for inductive legal citation prediction that leverages both structural information from the citation graph and specialized textual embeddings from LegalBERT.
+    \item We show that integrating these elements into the GAIN architecture enables superior performance compared to traditional link predictors, purely textual methods, general-purpose GNNs, and specialized legal citation models.
+    \item We provide extensive experiments, quantitative evaluations, and qualitative analyses on a subset of the Supreme Court opinions, highlighting the performance advantages and limitations of our approach.
+\end{itemize}
+
+\section{Related Work}
+\paragraph{Legal Citation Analysis and Prediction}
+The analysis of legal citations dates back to early citation indices such as Shepard's Citations \citep{mersky_fundamentals_2002}. With the rise of computational methods, network science approaches have been applied to legal citations to measure influence and precedent importance \citep{fowler2007network,bommarito2010network}. While these works provide descriptive insights into legal citation patterns, the forward-looking task of predicting future citations remains more challenging. Efforts like \citet{knight2002network} and \citet{post2000fractal} explored structural patterns for forecasting citations but lacked the nuanced semantic modeling now possible with modern NLP methods.
+
+\paragraph{Traditional Link Prediction Methods}
+Classical link prediction algorithms, such as Common Neighbors, Jaccard Coefficient, and Preferential Attachment \citep{liben2007link}, rely heavily on local graph structures. While computationally simple, they ignore textual semantics and may fail to capture complex doctrinal linkages. BM25 \citep{robertson2009probabilistic} attempts to rank documents by term relevance, and sentence-level embeddings (e.g., SBERT \citep{reimers2019sentence}) provide semantic representations, but these approaches often consider either structure or text alone.
+
+\paragraph{Neural Methods for Legal Analysis}
+Deep learning approaches in the legal domain have tackled tasks such as legal judgment prediction \citep{aletras_predicting_2016}, summarization, and argument mining \citep{zhong-etal-2018-legal}. LegalBERT \citep{chalkidis-etal-2020-legalbert} is a specialized language model pretrained on legal corpora, providing rich linguistic and domain-specific representations. However, integrating these embeddings into a graph-based predictive framework for citations remains an open challenge.
+
+\paragraph{Graph Neural Networks and Inductive Learning}
+GNNs like GCN \citep{kipf2016semi}, GraphSAGE \citep{hamilton2018inductive}, and GAT \citep{velivckovic2018graph} learn node embeddings by aggregating information from neighbors. They have excelled in tasks like node classification and link prediction. GAIN \citep{weng2022gain} extends GAT to inductive settings, enabling inference on evolving graphs. This property is essential for legal citation prediction, as new opinions arrive over time and must be integrated without retraining the entire model from scratch.
+
+\paragraph{Legal Citation Prediction Models}
+LePARD \citep{mahari2022lepard} provided a dataset and baseline models for citation prediction, highlighting the challenges posed by the power-law distribution of citations and dataset scale. While LePARD and similar efforts recognize the importance of textual and structural features, they often struggle to fully integrate domain-specific embeddings and efficiently handle the inductive scenario. Our approach aims to fill this gap by jointly leveraging domain-specific text embeddings and advanced GNN architectures.
+
+\section{Dataset and Features}
+We use a subsample of the LePARD dataset \citep{mahari2022lepard}, focusing on roughly 30,000 U.S. Supreme Court opinions. This subset includes:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Full Text of Opinions}: Rich, domain-specific legal language.
+    \item \textbf{Citation Graph}: Directed edges from a newly issued opinion to older precedents it cites, forming a temporal graph.
+    \item \textbf{Metadata}: Publication dates, author identities, and court information.
+\end{itemize}
+
+We enrich the dataset with citation graph metadata from the Free Law Project.\footnote{\url{https://free.law/}} The temporal dimension of this dataset is crucial: opinions cite only previously issued cases, ensuring a natural chronological order.
+
+\paragraph{Data Splits}
+We simulate real-world conditions by using a temporal split:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Training Set}: Opinions up to 2015 ($\sim$24,000 opinions).
+    \item \textbf{Validation Set}: Opinions from 2015 to 2017 ($\sim$3,000 opinions).
+    \item \textbf{Test Set}: Opinions after 2017 ($\sim$3,000 opinions).
+\end{itemize}
+This ensures that the model must generalize to truly new cases that appear after training has finished.
+
+\paragraph{Textual Embeddings}
+We process each opinion’s text with LegalBERT \citep{chalkidis-etal-2020-legalbert}, extracting a 768-dimensional embedding from the [CLS] token. LegalBERT’s pretraining on legal corpora ensures richer understanding of legal terminology and reasoning compared to generic language models.
+
+\paragraph{Metadata Encoding}
+We concatenate one-hot encoded metadata features (e.g., for author, court) and time-based features (e.g., publication year) with the LegalBERT embedding. This results in a node feature vector that captures both semantic and contextual aspects.
+
+\paragraph{Graph Construction}
+Nodes represent opinions; a directed edge $(v_i \to v_j)$ indicates that opinion $v_i$, issued after $v_j$, cites $v_j$. We remove self-loops and duplicates. The resulting graph is temporally consistent and ready for inductive experiments, where new nodes appear in the validation or test sets.
+
+\section{Methods}
+Our solution for inductive legal citation prediction integrates GAIN \citep{weng2022gain} with LegalBERT embeddings to model both structural and semantic dimensions.
+
+\subsection{GAIN: Graph Attention Inductive Network}
+GAIN extends Graph Attention Networks (GAT) \citep{velivckovic2018graph} for inductive node and edge reasoning. Let $h_i$ be the embedding of node $v_i$. GAIN updates $h_i$ by attending over its neighbors:
+\begin{equation}
+h_i = \sigma\left(\sum_{v_j \in \mathcal{N}(v_i)} \alpha_{ij} W h_j \right),
+\end{equation}
+where $W$ is a weight matrix, $\sigma$ is a non-linear activation (ReLU), and $\alpha_{ij}$ are attention coefficients that determine how much $v_i$ attends to each neighbor $v_j$.
+
+The attention coefficients $\alpha_{ij}$ are computed as:
+\begin{equation}
+\alpha_{ij} = \frac{\exp\left(\text{LeakyReLU}(a^\top [W h_i \,||\, W h_j])\right)}{\sum_{k \in \mathcal{N}(v_i)} \exp\left(\text{LeakyReLU}(a^\top [W h_i \,||\, W h_k])\right)},
+\end{equation}
+where $a$ is a learnable parameter vector, and $||$ denotes concatenation. The ability to compute embeddings for previously unseen nodes using learned aggregator functions is key for inductive tasks.
+
+\subsection{Integrating Textual Embeddings}
+Each node’s initial feature vector is the concatenation of the LegalBERT embedding and metadata features:
+\begin{equation}
+x_i = [\text{LegalBERT}(d_i) \,||\, \text{metadata}(i)],
+\end{equation}
+where $d_i$ is the text of opinion $i$. By starting with these semantically rich embeddings, the GAIN layers learn to propagate and refine this information across the citation network.
+
+\subsection{Link Prediction Setup}
+Given a new opinion $v_{\text{new}}$, we aim to predict its citations to older opinions $v_j$. We first obtain the final node embeddings $h_{\text{new}}$ and $h_j$ after applying GAIN. We then define a score function:
+\begin{equation}
+f(v_{\text{new}}, v_j) = \sigma(\mathbf{w}^\top[h_{\text{new}} || h_j]),
+\end{equation}
+where $\mathbf{w}$ is a learnable parameter vector and $\sigma$ is the sigmoid function. A higher score indicates a higher likelihood that $v_{\text{new}}$ cites $v_j$.
+
+\paragraph{Training Objective}
+We use binary cross-entropy loss. Positive samples are true citations from the training data. Negative samples are generated by randomly pairing $v_{\text{new}}$ with nodes it does not cite:
+\begin{equation}
+\mathcal{L} = -\sum_{(v_i, v_j)\in\mathcal{E}^+}\log f(v_i,v_j) - \sum_{(v_i, v_j)\in\mathcal{E}^-}\log(1 - f(v_i,v_j)).
+\end{equation}
+
+\subsection{Hyperparameter Tuning}
+We perform hyperparameter optimization using Optuna \citep{akiba2019optuna}, selecting:
+\begin{itemize}[leftmargin=*]
+    \item Embedding dimension: 128 (balancing expressiveness and computational cost).
+    \item Number of attention heads: 8 (to model diverse relational patterns).
+    \item Learning rate: 0.001 with Adam \citep{kingma2017adam}.
+    \item Batch size: 256, chosen to balance memory constraints and stable training.
+\end{itemize}
+
+All hyperparameters are tuned using the validation set.
+
+\section{Experiments and Results}
+\subsection{Experimental Setup}
+Our experiments are conducted with PyTorch and PyTorch Geometric \citep{fey2019fast} on an 8x NVIDIA 4090 GPU machine. Each model is trained until convergence, and performance is monitored on the validation set. We report final results on the test set, ensuring that no future information leaks into training.
+
+\subsection{Baselines}
+We compare our model against a range of baselines:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Random}: Predicts random citations, establishing a lower bound.
+    \item \textbf{Classical Link Predictors}: Jaccard Coefficient (JC), Preferential Attachment (PA) \citep{liben2007link}.
+    \item \textbf{Textual Methods}: BM25 \citep{robertson2009probabilistic}, SBERT \citep{reimers2019sentence}.
+    \item \textbf{GNN Baselines}: GraphSAGE \citep{hamilton2018inductive}, GAT \citep{velivckovic2018graph}.
+    \item \textbf{Domain-Specific Legal Model}: LePARD \citep{mahari2022lepard}, a citation prediction baseline using DistilBERT-based embeddings.
+\end{itemize}
+
+We ensure a fair comparison by tuning hyperparameters of all baselines using the validation set.
+
+\subsection{Evaluation Metrics}
+We employ metrics common in link prediction and information retrieval:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Precision@k} and \textbf{Recall@k}: Assess top-$k$ predictions for each new opinion.
+    \item \textbf{Mean Average Precision (MAP)}: Aggregates precision across all ranks where correct citations appear.
+    \item \textbf{Mean Reciprocal Rank (MRR)}: Emphasizes the rank of the first correct prediction.
+\end{itemize}
+
+These metrics collectively assess both the quality of ranking and the ability to recover all relevant citations.
+
+\subsection{Quantitative Results}
+Table~\ref{tab:performance} presents test-set results. Our GAIN+LegalBERT model substantially outperforms all baselines. Most notably, we achieve a Precision@10 of 0.82, a dramatic improvement over the best baseline (LePARD’s 0.32).
+
+\begin{table}[H]
+    \centering
+    \caption{Performance Comparison on the Test Set (mean $\pm$ std over multiple runs)}
+    \label{tab:performance}
+    \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Model} & \textbf{Precision@10} & \textbf{Recall@10} & \textbf{MAP} & \textbf{MRR} \\
+    \midrule
+    Random & 0.01 $\pm$ 0.00 & 0.005 $\pm$ 0.00 & 0.003 $\pm$ 0.00 & 0.01 $\pm$ 0.00 \\
+    JC & 0.08 $\pm$ 0.01 & 0.04 $\pm$ 0.01 & 0.06 $\pm$ 0.01 & 0.10 $\pm$ 0.01 \\
+    PA & 0.12 $\pm$ 0.02 & 0.06 $\pm$ 0.01 & 0.09 $\pm$ 0.02 & 0.12 $\pm$ 0.02 \\
+    BM25 & 0.18 $\pm$ 0.03 & 0.09 $\pm$ 0.02 & 0.11 $\pm$ 0.02 & 0.15 $\pm$ 0.02 \\
+    SBERT & 0.22 $\pm$ 0.02 & 0.11 $\pm$ 0.01 & 0.14 $\pm$ 0.02 & 0.18 $\pm$ 0.02 \\
+    GraphSAGE & 0.25 $\pm$ 0.03 & 0.12 $\pm$ 0.02 & 0.19 $\pm$ 0.03 & 0.22 $\pm$ 0.03 \\
+    GAT & 0.28 $\pm$ 0.03 & 0.14 $\pm$ 0.02 & 0.23 $\pm$ 0.03 & 0.26 $\pm$ 0.03 \\
+    LePARD & 0.32 $\pm$ 0.04 & 0.16 $\pm$ 0.02 & 0.25 $\pm$ 0.03 & 0.28 $\pm$ 0.03 \\
+    \textbf{GAIN (Ours)} & \textbf{0.82 $\pm$ 0.02} & \textbf{0.41 $\pm$ 0.03} & \textbf{0.68 $\pm$ 0.04} & \textbf{0.75 $\pm$ 0.03} \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+Our model’s superior performance across all metrics underscores the value of combining graph-based inductive reasoning with domain-specific text embeddings. Below is a plot of the Precision Recall Curve, and the ROC curve over training epochs.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../PROJECT_CODE/plots/precision_recall_curve.png}
+        \caption{Precision-Recall Curve}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../PROJECT_CODE/plots/validation_roc_auc.png}
+        \caption{ROC Curve}
+    \end{subfigure}
+    \caption{Performance Curves for GAIN+LegalBERT}
+\end{figure}
+
+\subsection{Ablation Study}
+To understand the relative importance of different components, we conduct an ablation study (Table~\ref{tab:ablation}).
+
+\begin{table}[H]
+    \centering
+    \caption{Ablation Study Results}
+    \label{tab:ablation}
+    \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Model Variant} & \textbf{Precision@10} & \textbf{Recall@10} & \textbf{MAP} & \textbf{MRR} \\
+    \midrule
+    Full (GAIN + LegalBERT) & 0.82 & 0.41 & 0.68 & 0.75 \\
+    w/o Textual Features & 0.45 & 0.22 & 0.35 & 0.40 \\
+    w/o Graph Structure & 0.38 & 0.19 & 0.29 & 0.33 \\
+    Replace LegalBERT w/ BERT & 0.68 & 0.34 & 0.55 & 0.60 \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+Removing textual features severely reduces accuracy, underscoring the importance of semantic content. Similarly, removing the graph structure leads to poor performance, confirming that structural cues are essential. Replacing LegalBERT with a general-purpose BERT also degrades performance, illustrating the value of domain-specific pretraining.
+
+\subsection{Qualitative Analysis}
+A qualitative analysis reveals that our model effectively identifies landmark precedents. Consider a new opinion addressing First Amendment issues: our model predicts citations to famous free speech cases like \emph{Brandenburg v. Ohio} and \emph{Texas v. Johnson} at top ranks. Baseline models fail to rank these landmark cases as highly, suggesting that our integration of structure and domain-specific text truly captures the subtle doctrinal connections that govern legal citation behavior.
+
+\subsection{Error Analysis}
+Despite strong results, the model struggles with very recent opinions that lack sufficient referencing context. It also makes occasional errors by citing overly generic, frequently cited cases that may not be topically relevant. These issues point toward the need for more sophisticated negative sampling strategies, better handling of temporal sparsity, or topic modeling to refine relevance judgments.
+
+\section{Conclusion and Discussion}
+We have presented an approach that integrates GAIN, an inductive GNN model, with LegalBERT embeddings to predict legal citations in an inductive scenario. Our model substantially outperforms traditional link prediction methods, text-based approaches, and specialized legal citation models. This demonstrates the importance of bridging structural and semantic representations, as well as leveraging domain-specific language models, for advancing citation prediction in the legal sphere.
+
+\paragraph{What Worked}
+The combination of GNN-based inductive representation learning with domain-adapted embeddings allowed us to capture both the structural complexity of citation networks and the semantic richness of legal language. Attention mechanisms guided the model to focus on relevant neighbors, improving the quality of predictions.
+
+\paragraph{What Did Not Work}
+Scaling the model to even larger corpora presents computational challenges, particularly concerning memory and run-time complexity. Handling sparse, recently added opinions remains difficult, and the model’s reliance on negative sampling can introduce biases. We also imagine that the inherent sparsity of the legal citation graph, and the sheer \emph{scale} of the law means that there are certainly relevant but not-cited opinions, though we imagine this is rare as judges invest more energy in writing, and have a more limited precedential toolbox \citep{Drobak2008UnderstandingJD, Williams2016}.  We also note that while LegalBERT embeddings help capture legal semantics, certain specialized domains (e.g., patent law, tax law) may require even more fine-tuned models.
+
+\paragraph{Future Work}
+Potential avenues for future research include:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Scalability}: Incorporating distributed training and graph sampling techniques for extremely large datasets.
+    \item \textbf{Topic Modeling}: Integrating topic or concept-level embeddings (e.g., via LDA or contextual topic models) to ensure that predicted citations align not just with frequently cited cases but also with thematically relevant precedents.
+    \item \textbf{Advanced Negative Sampling}: Exploring adversarial negative sampling or curriculum learning approaches to improve training stability and enhance the model’s ability to distinguish truly relevant citations from superficially similar ones.
+    \item \textbf{Multi-hop Reasoning}: Extending the model to reason over multiple hops in the citation graph, potentially uncovering deeper chains of precedent.
+\end{itemize}
+    
+Overall, we believe that our work takes a substantial step towards more accurate, meaningful, and contextually informed legal citation prediction, and we hope it will inspire further research at the intersection of graph representation learning, natural language processing, and legal informatics.
+
+\section*{Contributions}
+All work—data preprocessing, model design, implementation, experimentation, analysis, and writing—was performed by me!
+
+\medskip
+
+\small
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,99 @@
+\documentclass{article}
+
+% NeurIPS 2023 style file
+\usepackage[final]{neurips_2023}
+
+% To compile a camera-ready version, uncomment the following line:
+% \usepackage[final]{neurips_2023}
+
+\usepackage[utf8]{inputenc}    % allow utf-8 input
+\usepackage[T1]{fontenc}       % use 8-bit T1 fonts
+\usepackage{hyperref}          % hyperlinks
+\usepackage{url}               % simple URL typesetting
+\usepackage{booktabs}          % professional-quality tables
+\usepackage{amsfonts}          % blackboard math symbols
+\usepackage{nicefrac}          % compact symbols for 1/2, etc.
+\usepackage{microtype}         % microtypography
+\usepackage{xcolor}            % colors
+\usepackage{amsmath}           % mathematical symbols
+\usepackage{graphicx}          % figures
+\usepackage{enumitem}          % customized lists
+\usepackage{natbib}
+
+\title{Citation is All You Need:\\ Predicting Legal Citations with Graph Neural Networks and Textual Metadata}
+
+\author{%
+  Harry Sanders \\
+  Department of Mathematics \\
+  University of Michigan \\
+  \texttt{hwsand@umich.edu} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+Legal citation networks are crucial for understanding the development of jurisprudence and the interconnectedness of legal opinions. Predicting citations between legal documents promises to accelerate legal research and assist in discovering influential precedents. Traditional methods often rely on textual similarity or on classical link prediction algorithms, which may not capture the complex structural patterns inherent in legal citations or the evolving nature of legal systems.
+
+Recent advancements in graph neural networks (GNNs) have demonstrated significant potential in modeling relational data \citep{hamilton2018inductive}. In this work, we propose an approach that leverages GNNs alongside textual metadata to predict future citations in legal documents. By focusing on inductive link prediction, we aim to address the challenge of predicting citations for new nodes entering the network, a task that requires generalizing from the existing citation graph.
+
+\section{Description of the Task and Approach}
+
+\subsection{Problem Statement}
+
+Consider a temporal, directed citation graph $G = (V, E)$, where $V$ represents legal opinions, $E$ consists of citation edges \( (v_i, v_j) \) indicating that opinion \( v_i \) cites opinion \( v_j \), and each citation \( (v_i, v_j) \) satisfies \( t(v_j) < t(v_i) \), where \( t(v) \) denotes the publication time of opinion \( v \), ensuring that citations only reference earlier opinions.
+
+Each node \( v \in V \) is associated with a feature vector \( \mathbf{x}_v \) comprising:
+\begin{itemize}
+    \item Text embeddings of from the full text of the legal opinion.
+    \item Metadata, like author biography and publication dates.
+\end{itemize}
+
+At a given time \( t \), the citation graph \( G_t = (V_t, E_t) \) includes all opinions and citations up to time \( t \). A new legal opinion \( v_{\text{new}} \) is published at time \( t+1 \) with its corresponding feature vector \( \mathbf{x}_{\text{new}} \).
+
+Our objective is to predict the set of citations \( S \subseteq V_t \) that the new opinion \( v_{\text{new}} \) will include, i.e., determine which existing opinions \( v \in V_t \) will be cited by \( v_{\text{new}} \). 
+
+
+\subsection{Dataset}
+
+We use legal opinion texts and citation information from \citet{mahari-etal-2024-lepard} and citation graph metadata from the Free Law Project. Legal opinion texts are preprocessed using LegalBERT \citep{chalkidis-etal-2020-legalbert} to generate text embeddings. Author information and dates are encoded as additional node features. The citation graph is constructed based on the edges between opinions that cite each other.
+
+\subsection{Algorithms}
+
+We implement the Graph Attention Inductive Network (GAIN) \citep{weng2022gain} for inductive link prediction on the citation graph. GAIN learns node embeddings $h_i$ by aggregating features from neighboring nodes using attention mechanisms.
+
+To predict the likelihood of a citation from node $v_i$ to node $v_j$, we define a scoring function \( f: V_t \times V_t \rightarrow [0, 1] \) that assigns a probability \( f(v_{\text{new}}, v_j) \) indicating the likelihood that \( v_{\text{new}} \) cites \( v_j \). We learn this function via a binary classification task, where positive examples are true citations and negative examples are randomly sampled non-citations, using an MLP over the concatenation of node embeddings \( h_i \) and \( h_j \). We train the model using negative sampling and optimize the binary cross-entropy loss.
+
+The goal is to predict the top-\( k \) nodes with the highest scores as the citations for \( v_{\text{new}} \) at time \( t+1 \).
+
+\subsection{Expected Challenges}
+
+A primary challenge is scalability. \citet{mahari2021autolaw} observed significant performance drops when scaling from the top 1,000 to the top 10,000 cited cases, a finding validated by \citet{mahari-etal-2024-lepard}, who found citation prediction on 200,000 cases infeasible due to the sparsity and power-law distribution of the citation graph \citep{post2000fractal}. To mitigate this, we constrain our dataset to Supreme Court cases, totaling approximately 30,000. Upon validating our approach, we can consider scaling up to larger datasets.
+
+\subsection{Benchmarking and Metrics}
+
+We compare our approach with classical link prediction methods—Common Neighbors, Jaccard Coefficient, and Preferential Attachment \citep{liben2007link}—and deep learning approaches like GraphSAGE \citep{hamilton2018inductive}, GAT \citep{velivckovic2018graph}, and the model from LePARD \citep{mahari-etal-2024-lepard}. Naïve approaches like random selection and most-cited cases will serve as baselines. We'll evaluate with Precision@k, Recall@k, F1@k, Mean Average Precision, and Mean Reciprocal Rank.
+
+\section{Relevant Literature}
+
+Citation prediction has been explored using various methods. Traditional approaches rely on textual similarity or on textless network data \citep{luo2023interpretability, knight2002network}. \citet{liben2007link} discussed foundational methods in link prediction within networks. GNNs have shown promise in capturing complex patterns in relational data \citep{hamilton2018inductive, velivckovic2018graph}. The model associated with the LePARD dataset \citep{mahari-etal-2024-lepard} specifically addresses legal citation prediction but struggles with scalability on large datasets. GAIN \citep{weng2022gain} introduces an inductive framework that leverages attention to learn more complex representations suitable for dynamic graphs, making it a strong candidate for our task, and \cite{Perozzi_2014} provides the groundwork for our negative sampling strategy. 
+
+\section{To-Do List}
+
+\begin{itemize}[leftmargin=*, noitemsep]
+  \item Set up benchmarking against baseline methods.
+  \item Implement GAIN model.
+  \item Preprocess legal opinion texts with LegalBERT.
+  \item Construct the citation graph and write dataloader.
+  \item Implement negative sampling strategies.
+  \item Implement Eval metrics.
+  \item Tune hyperparameters, run experiments.
+  \item Profit?
+\end{itemize}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

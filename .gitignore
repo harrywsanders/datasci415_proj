@@ -1,0 +1,10 @@
+.DS_Store
+PROJECT_CODE/data/*
+PROJECT_CODE/models/*
+PROJECT_CODE/plots/*
+PROJECT_CODE/embeddings/*
+PROJECT_PAPER/.texpadtmp
+PROJECT_PAPER/*.bbl
+PROJECT_PAPER/*.synctex.gz
+PROJECT_PAPER/*.pdf
+PROJECT_PAPER/neurips_2023.sty
